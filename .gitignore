@@ -1,0 +1,26 @@
+# ----------------------------------------
+# CREDENCIALES, CLAVES y LOGS
+# ----------------------------------------
+*.log                # Archivos de log
+*.key                # Claves de cifrado
+
+# ----------------------------------------
+# ARCHIVOS DE DATOS CRÍTICOS Y LOCALES
+# ----------------------------------------
+# Si 'users.csv' tiene datos reales de clientes (correos), no debe subirse.
+data/users.csv 
+Plan de Prevencion y Mitigación de Estres Termico (ITH).txt
+
+# Datos crudos y resultados generados localmente
+data/raw/openmeteo_historical_monteria.csv
+data/raw/openweather_forecast.csv
+data/processed/
+
+# ----------------------------------------
+# PYTHON Y ENTORNO VIRTUAL
+# ----------------------------------------
+__pycache__/         # Caché de módulos de Python
+*.pyc                # Archivos compilados de Python
+venv/                 # Entorno virtual de Python
+.venv/               # Nombres comunes de entornos virtuales
+.env
