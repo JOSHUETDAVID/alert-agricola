@@ -1,112 +1,131 @@
-# src/extract.py
+# src/extract.py (COMPLETO Y FUNCIONAL)
 import requests
 import pandas as pd
 from os import getenv
 from dotenv import load_dotenv
-from typing import Optional, Dict # <--- IMPORTANTE: Importar Optional y Dict
+from typing import Optional, Dict
 import os
+import re
 
-# Carga las variables del archivo .env al entorno
 load_dotenv() 
+# Asegúrate de que esta clave exista en tu .env
+API_KEY = getenv("OPENWEATHER_API_KEY") 
 
-# La API Key se obtiene de forma segura
-API_KEY = getenv("OPENWEATHER_API_KEY")
+# =======================================================================
+# 1. FUNCIONES DE EXTRACCIÓN (Fetch)
+# =======================================================================
 
-# === CORRECCIÓN CLAVE: La firma de la función ahora es honesta ===
-# Devolverá un diccionario (Dict) si es exitosa, o None si falla.
 def fetch_openweather_forecast(url: str, lat: float, lon: float) -> Optional[Dict]:
     """
-    Obtiene el pronóstico de 5 días de OpenWeatherMap.
-    Su única responsabilidad es hacer la petición y devolver los datos crudos.
+    Obtiene el pronóstico de 5 días / 3 horas de OpenWeatherMap.
+    Devuelve el JSON completo o None si falla.
     """
     if not API_KEY:
-        raise ValueError("ERROR CRÍTICO: La API_KEY no está cargada.")
-
-    params = {
-        "lat": lat,
-        "lon": lon,
-        "appid": API_KEY,
-        "units": "metric"  # Para obtener la temperatura en Celsius
-    }
-    
+        print("--- ERROR: OPENWEATHER_API_KEY no configurada.")
+        return None
+        
     try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status() # Lanza un HTTPError si la respuesta es 4xx o 5xx
+        # Nota: OpenWeather usa 'lat' y 'lon'
+        response = requests.get(url, params={
+            'lat': lat,
+            'lon': lon,
+            'appid': API_KEY,
+            'units': 'metric', # Obtener temperatura en Celsius
+            'lang': 'es'
+        }, timeout=10)
+        
+        response.raise_for_status()  # Lanza excepción para códigos de error HTTP
         
         data = response.json()
-        
-        # Devolvemos el diccionario crudo (Dict)
-        return data
-
+        if data.get('cod') == '200':
+            print(f"  --- EXITO Extracción exitosa de OpenWeatherMap.")
+            return data
+        else:
+            print(f"  ---  ALERTA OpenWeatherMap devolvió código: {data.get('cod')}")
+            return None
+            
     except requests.exceptions.RequestException as e:
-        print(f"FALLO CRÍTICO DE EXTRACCIÓN (OpenWeather): {e}")
-        # Retornamos None, lo cual ahora es válido gracias a 'Optional[Dict]'
+        print(f"  ---  ERROR de conexión/API de OpenWeatherMap: {e}")
         return None
-
-# =======================================================================
-# 2. FUNCIÓN DE EXTRACCIÓN FALLBACK (Open-Meteo)
-# =======================================================================
 
 def fetch_openmeteo_forecast(url: str, lat: float, lon: float) -> Optional[Dict]:
     """
-    Obtiene el pronóstico de Open-Meteo como proveedor de fallback.
+    Obtiene el pronóstico de 7 días / 1 hora de Open-Meteo.
+    Devuelve el JSON completo o None si falla.
     """
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "hourly": "temperature_2m,relative_humidity_2m,precipitation",
-        "forecast_days": 5, 
-        "timezone": "auto"
-    }
-
     try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        # Nota: Open-Meteo usa 'latitude' y 'longitude'
+        response = requests.get(url, params={
+            'latitude': lat,
+            'longitude': lon,
+            'hourly': 'temperature_2m,relative_humidity_2m',
+            'forecast_days': 2 # Solo necesitamos hoy y mañana para la alerta
+        }, timeout=10)
         
-        return data
-
+        response.raise_for_status() 
+        
+        data = response.json()
+        if 'hourly' in data:
+            print(f"  --- EXITO Extracción exitosa de Open-Meteo (Fallback).")
+            return data
+        else:
+            print(f"  --- ALERTA Open-Meteo no devolvió datos horarios.")
+            return None
+            
     except requests.exceptions.RequestException as e:
-        print(f"FALLO CRÍTICO DE EXTRACCIÓN (Open-Meteo Fallback): {e}")
+        print(f"  --- ERROR de conexión/API de Open-Meteo: {e}")
         return None
 
 # =======================================================================
-# 3. FUNCIÓN DE CARGA DE DATOS HISTÓRICOS (Load Local File)
+# 2. FUNCIONES DE CARGA (Load)
 # =======================================================================
 
 def load_historical_data(file_path: str) -> pd.DataFrame:
     """
-    Carga el archivo CSV histórico de Open-Meteo desde el disco.
-    Esta es la función L (Load) en el contexto de un archivo local.
+    Carga el archivo CSV histórico (para el umbral) y limpia las columnas.
     """
     if not os.path.exists(file_path):
-        print(f" ERROR: No se encontró el archivo histórico en la ruta: {file_path}")
-        return pd.DataFrame() # Devuelve un DataFrame vacío si el archivo no existe
+        print(f"  --- ERROR: No se encontró el archivo histórico en la ruta: {file_path}")
+        return pd.DataFrame() 
         
     try:
-        # Usamos parse_dates para asegurar que la columna 'time' sea tipo datetime
-        df_historical = pd.read_csv(
-            file_path, 
-            parse_dates=['time']
-        )
-        print(f"EXITO: Histórico cargado exitosamente: {len(df_historical)} registros.")
+        df_historical = pd.read_csv(file_path, parse_dates=['time'])
+        
+        # Limpieza de nombres de columnas (quita unidades como (C) o (%))
+        df_historical.columns = df_historical.columns.str.replace(r' \(.*\)', '', regex=True)
+        df_historical.columns = df_historical.columns.str.lower().str.strip()
+
+        required_cols = ['time', 'temperature_2m', 'relative_humidity_2m']
+        if not all(col in df_historical.columns for col in required_cols):
+             print(f"FALLO: El CSV histórico no contiene todas las columnas requeridas tras la limpieza.")
+             return pd.DataFrame()
+
+        # Asegurar el formato de tiempo
+        df_historical['time'] = pd.to_datetime(df_historical['time'])
+
+        print(f"  --- EXITO Histórico cargado exitosamente: {len(df_historical)} registros.")
         return df_historical
         
     except Exception as e:
-        print(f" ERROR al cargar el histórico: {e}")
+        print(f"  --- ERROR al cargar el histórico: {e}")
         return pd.DataFrame()
-    
+
 def load_user_data(file_path: str) -> pd.DataFrame:
     """
     Carga la lista de usuarios (coordenadas y correos) para los envíos masivos.
     """
     if not os.path.exists(file_path):
-        print(f"❌ ERROR: No se encontró el archivo de usuarios en la ruta: {file_path}")
+        print(f"  --- ERROR: No se encontró el archivo de usuarios en la ruta: {file_path}")
         return pd.DataFrame()
     try:
         df_users = pd.read_csv(file_path)
-        print(f"-- EXITO -- Base de datos de {len(df_users)} usuarios cargada.")
+        
+        # Convertir a float para evitar errores en las llamadas a la API
+        df_users['latitude'] = pd.to_numeric(df_users['latitude'], errors='coerce')
+        df_users['longitude'] = pd.to_numeric(df_users['longitude'], errors='coerce')
+
+        print(f"  --- EXITO Base de datos de {len(df_users)} usuarios cargada.")
         return df_users
     except Exception as e:
-        print(f"-- FRACASO -- ERROR al cargar usuarios: {e}")
+        print(f"  --- ERROR al cargar usuarios: {e}")
         return pd.DataFrame()
