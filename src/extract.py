@@ -5,7 +5,7 @@ from os import getenv
 from dotenv import load_dotenv
 from typing import Optional, Dict
 import os
-import re
+
 
 load_dotenv() 
 # Asegúrate de que esta clave exista en tu .env

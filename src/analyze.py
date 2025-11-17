@@ -24,7 +24,7 @@ def calculate_historical_threshold(df_historical: pd.DataFrame, ith_col: str = '
     # Este será nuestro umbral de "Riesgo Alto" para Montería.
     threshold = df_historical[ith_col].quantile(0.75)
 
-    print(f"EXITO: Umbral de Riesgo Histórico (P75 ITH): {threshold:.2f}")
+    print(f"EXITO: Umbral de Riesgo Histórico : {threshold:.2f}")
     return threshold
 
 
